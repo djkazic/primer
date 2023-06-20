@@ -171,7 +171,7 @@ func copyNestedBucket(srcBucket, destBucket *bolt.Bucket) error {
 						return err
 					}
 				}
-	
+				nestedDestBucket.FillPercent = 1.0
 				if err := copyNestedBucket(nestedBucket, nestedDestBucket); err != nil {
 					log.Printf("Failed to copy nested bucket %s: %v", string(key), err)
 					return err
@@ -239,6 +239,7 @@ func compactDatabase(dbPath string) error {
 			// Create or retrieve the corresponding bucket in the destination database.
 			return compactedDB.Update(func(destTx *bolt.Tx) error {
 				destBucket, err := destTx.CreateBucketIfNotExists(name)
+				destBucket.FillPercent = 1.0
 				if err != nil {
 					return err
 				}
