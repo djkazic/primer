@@ -7,34 +7,76 @@ import (
 	"io"
 	"log"
 	"os"
-	"path/filepath"
+	"time"
 
 	bolt "go.etcd.io/bbolt"
 )
 
 const (
-	dbFile              = "channel.db"
-	outputDBFile        = "graph-001d.db"
-	md5SumsFile         = "MD5SUMS"
+	originalDBFile      = "/lnd/data/graph/mainnet/channel.db"
+	dbFile              = "/tmp/channel.db"
+	outputDBFile        = "/cryptpad/graph-001d.db"
+	md5SumsFile         = "/cryptpad/MD5SUMS"
 	graphNodeBucketName = "graph-node"
 	graphEdgeBucketName = "graph-edge"
 )
 
+func copyFile(src, dest string) error {
+	srcFile, err := os.Open(src)
+	if err != nil {
+		return err
+	}
+	defer srcFile.Close()
+
+	destFile, err := os.Create(dest)
+	if err != nil {
+		return err
+	}
+	defer destFile.Close()
+
+	_, err = io.Copy(destFile, srcFile)
+	if err != nil {
+		return err
+	}
+
+	return destFile.Sync()
+}
+
 func main() {
+	ticker := time.NewTicker(time.Hour)
+
+	for {
+		select {
+		case <-ticker.C:
+			run()
+		}
+	}
+}
+
+func run() {
+    fmt.Println("Primer v0.1.0 starting")
+	fmt.Println("Copying sourcedb")
+	err := copyFile(originalDBFile, dbFile)
+	if err != nil {
+		log.Fatal(err)
+	}
+
 	// Open the existing channel.db database file in read-only mode.
 	existingDB, err := bolt.Open(dbFile, 0600, &bolt.Options{ReadOnly: true})
 	if err != nil {
 		log.Fatal(err)
 	}
 	defer existingDB.Close()
+        fmt.Println("Opened channeldb")
 
 	// Create a new graph-001d.db database file.
-	strippedDBPath := filepath.Join(".", outputDBFile)
+	strippedDBPath := outputDBFile
 	strippedDB, err := bolt.Open(strippedDBPath, 0600, nil)
 	if err != nil {
 		log.Fatal(err)
 	}
 	defer strippedDB.Close()
+        fmt.Println("Created strippeddb")
 
 	// Copy the graph-node bucket to the stripped database.
 	if err := copyBucket(existingDB, strippedDB, graphNodeBucketName); err != nil {
