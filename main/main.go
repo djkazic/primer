@@ -93,14 +93,12 @@ func run() {
 	fmt.Println("Copied graph-edge bucket")
 
 	fmt.Println("Stripped database created successfully")
-	// strippedDB.Close()
-	// // Perform compaction by creating a new database file and copying the contents.
-	// if err := compactDatabase(strippedDBPath); err != nil {
-	// 	log.Fatal(err)
-	// }
-
-	// fmt.Println("Database compaction completed successfully")
-
+	strippedDB.Close()
+	// Perform compaction by creating a new database file and copying the contents.
+	if err := compactDatabase(strippedDBPath); err != nil {
+		log.Fatal(err)
+	}
+	fmt.Println("Database compaction completed successfully")
 	err = os.Chmod(strippedDBPath, 0775)
 
 	// Generate the MD5 checksum for the graph-001d.db file.
@@ -115,6 +113,7 @@ func run() {
 func copyBucket(srcDB, destDB *bolt.DB, bucketName string) error {
 	return srcDB.View(func(tx *bolt.Tx) error {
 		srcBucket := tx.Bucket([]byte(bucketName))
+		log.Printf("Copying %s", bucketName)
 		if srcBucket == nil {
 			log.Printf("Source bucket %s does not exist. Skipping bucket copy.", bucketName)
 			return nil
@@ -131,16 +130,16 @@ func copyBucket(srcDB, destDB *bolt.DB, bucketName string) error {
 			}
 
 			// Skip copying 'zombie-index' bucket inside 'graph-edge' bucket.
-			if bucketName == "graph-edge" {
-				// If 'zombie-index' bucket doesn't exist, create it.
-				if destBucket.Bucket([]byte("zombie-index")) == nil {
-					_, err := destBucket.CreateBucket([]byte("zombie-index"))
-					if err != nil {
-						return err
-					}
-				}
-				return nil
-			}
+			// if bucketName == "graph-edge" {
+			// 	// If 'zombie-index' bucket doesn't exist, create it.
+			// 	if destBucket.Bucket([]byte("zombie-index")) == nil {
+			// 		destBucket.CreateBucket([]byte("zombie-index"))
+			// 		// if err != nil {
+			// 		// 	return err
+			// 		// }
+			// 	}
+			// 	return nil
+			// }
 
 			if err := copyNestedBucket(srcBucket, destBucket); err != nil {
 				return err
@@ -155,17 +154,28 @@ func copyNestedBucket(srcBucket, destBucket *bolt.Bucket) error {
 	err := srcBucket.ForEach(func(key, value []byte) error {
 		if nestedBucket := srcBucket.Bucket(key); nestedBucket != nil {
 			nestedDestBucket := destBucket.Bucket(key)
-			if nestedDestBucket == nil {
-				var err error
-				nestedDestBucket, err = destBucket.CreateBucket([]byte(key))
-				if err != nil {
-					log.Printf("Failed to create nested bucket %s: %v", string(key), err)
+			log.Printf("Evaluating bucket %s", string(key))
+			if string(key) == "zombie-index" {
+				log.Printf("Skipping zombie-index")
+				destBucket.CreateBucket([]byte("zombie-index"))
+			} else if string(key) == "chan-index" {
+				log.Printf("Skipping chan-index")
+				destBucket.CreateBucket([]byte("chan-index"))
+			} else {
+				if nestedDestBucket == nil {
+					var err error
+					nestedDestBucket, err = destBucket.CreateBucket([]byte(key))
+					log.Printf("Created nested destBucket %s", string(key))
+					if err != nil {
+						log.Printf("Failed to create nested bucket %s: %v", string(key), err)
+						return err
+					}
+				}
+	
+				if err := copyNestedBucket(nestedBucket, nestedDestBucket); err != nil {
+					log.Printf("Failed to copy nested bucket %s: %v", string(key), err)
 					return err
 				}
-			}
-
-			if err := copyNestedBucket(nestedBucket, nestedDestBucket); err != nil {
-				return err
 			}
 		} else {
 			if err := destBucket.Put(key, value); err != nil {
