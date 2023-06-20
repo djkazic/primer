@@ -43,6 +43,8 @@ func copyFile(src, dest string) error {
 }
 
 func main() {
+        // initial run
+        run()
 	ticker := time.NewTicker(time.Hour)
 
 	for {
@@ -91,13 +93,15 @@ func run() {
 	fmt.Println("Copied graph-edge bucket")
 
 	fmt.Println("Stripped database created successfully")
-	strippedDB.Close()
-	// Perform compaction by creating a new database file and copying the contents.
-	if err := compactDatabase(strippedDBPath); err != nil {
-		log.Fatal(err)
-	}
+	// strippedDB.Close()
+	// // Perform compaction by creating a new database file and copying the contents.
+	// if err := compactDatabase(strippedDBPath); err != nil {
+	// 	log.Fatal(err)
+	// }
 
-	fmt.Println("Database compaction completed successfully")
+	// fmt.Println("Database compaction completed successfully")
+
+	err = os.Chmod(strippedDBPath, 0775)
 
 	// Generate the MD5 checksum for the graph-001d.db file.
 	err = generateMD5Checksum(strippedDBPath, md5SumsFile)
@@ -128,15 +132,14 @@ func copyBucket(srcDB, destDB *bolt.DB, bucketName string) error {
 
 			// Skip copying 'zombie-index' bucket inside 'graph-edge' bucket.
 			if bucketName == "graph-edge" {
-				return srcBucket.ForEach(func(k, v []byte) error {
-					if string(k) != "zombie-index" {
-						if err := destBucket.Put(k, v); err != nil {
-							log.Printf("Failed to put key %s in bucket: %v", string(k), err)
-							return err
-						}
+				// If 'zombie-index' bucket doesn't exist, create it.
+				if destBucket.Bucket([]byte("zombie-index")) == nil {
+					_, err := destBucket.CreateBucket([]byte("zombie-index"))
+					if err != nil {
+						return err
 					}
-					return nil
-				})
+				}
+				return nil
 			}
 
 			if err := copyNestedBucket(srcBucket, destBucket); err != nil {
@@ -196,7 +199,7 @@ func generateMD5Checksum(filename, checksumFile string) error {
 	}
 	defer md5sumsFile.Close()
 
-	_, err = fmt.Fprintf(md5sumsFile, "%s  %s\n", checksum, filename)
+	_, err = fmt.Fprintf(md5sumsFile, "%s  graph-001d.db\n", checksum)
 	if err != nil {
 		return err
 	}
