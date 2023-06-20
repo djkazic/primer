@@ -1,0 +1,4 @@
+main/*.macaroon
+main/*.cert
+main/*.db
+main/MD5SUMS
