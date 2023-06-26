@@ -44,7 +44,7 @@ func copyFile(src, dest string) error {
 }
 
 func main() {
-	fmt.Println("Primer v0.1.0 starting")
+	log.Println("Primer v0.1.0 starting")
 	// initial run
 	run()
 	ticker := time.NewTicker(time.Hour)
@@ -57,9 +57,9 @@ func main() {
 }
 
 func run() {
-	fmt.Println("Cycle start")
+	log.Println("Cycle start")
 	os.Remove(dbFile)
-	fmt.Println("Copying sourcedb")
+	log.Println("Copying sourcedb")
 	err := copyFile(originalDBFile, dbFile)
 	if err != nil {
 		log.Fatal(err)
@@ -72,7 +72,7 @@ func run() {
 		log.Fatal(err)
 	}
 	defer existingDB.Close()
-        fmt.Println("Opened channeldb")
+	log.Println("Opened channeldb")
 
 	// Create a new graph-001d.db database file.
 	os.Remove(outputDBFile)
@@ -82,21 +82,21 @@ func run() {
 		log.Fatal(err)
 	}
 	defer strippedDB.Close()
-        fmt.Println("Created strippeddb")
+    log.Println("Created strippeddb")
 
 	// Copy the graph-node bucket to the stripped database.
 	if err := copyBucket(existingDB, strippedDB, graphNodeBucketName); err != nil {
 		log.Println(err)
 	}
-	fmt.Println("Copied graph-node bucket")
+	log.Println("Copied graph-node bucket")
 
 	// Copy the graph-edge bucket to the stripped database.
 	if err := copyBucket(existingDB, strippedDB, graphEdgeBucketName); err != nil {
 		log.Println(err)
 	}
-	fmt.Println("Copied graph-edge bucket")
+	log.Println("Copied graph-edge bucket")
 
-	fmt.Println("Stripped database created successfully")
+	log.Println("Stripped database created successfully")
 	strippedDB.Close()
 	err = os.Chmod(strippedDBPath, 0775)
 
@@ -106,7 +106,7 @@ func run() {
 		log.Fatal(err)
 	}
 
-	fmt.Println("MD5 checksum generated successfully")
+	log.Println("MD5 checksum generated successfully")
 }
 
 func copyBucket(srcDB, destDB *bolt.DB, bucketName string) error {
@@ -134,18 +134,30 @@ func copyBucket(srcDB, destDB *bolt.DB, bucketName string) error {
 	})
 }
 
+func stringInList(s string, list []string) bool {
+	for _, v := range list {
+		if v == s {
+			return true
+		}
+	}
+	return false
+}
+
 func copyNestedBucket(srcBucket, destBucket *bolt.Bucket, bucketName string) error {
+    // bucketWhitelist := []string{"zombie-index", "chan-index", "edge-index", "edge-update-index"}
 	err := srcBucket.ForEach(func(key, value []byte) error {
-		if (bucketName == graphEdgeBucketName && len(key) == 41) || (bucketName == graphNodeBucketName && hex.EncodeToString(key) != "000000006499cc5f0230a5bca558e6741460c13dd34e636da28e52afd91cf93db87ed1b0392a7466eb") {
+		if bucketName == graphEdgeBucketName || bucketName == graphNodeBucketName {
 			if nestedBucket := srcBucket.Bucket(key); nestedBucket != nil {
 				nestedDestBucket := destBucket.Bucket(key)
-				log.Printf("Evaluating bucket %s", string(key))
+				log.Printf("Evaluating nested bucket %s", string(key))
 				if string(key) == "zombie-index" {
 					log.Printf("Skipping zombie-index")
 					destBucket.CreateBucket([]byte("zombie-index"))
 				} else if string(key) == "chan-index" {
 					log.Printf("Skipping chan-index")
 					destBucket.CreateBucket([]byte("chan-index"))
+				} else if string(key) == "disabled-edge-policy-index" {
+					log.Printf("Skipping disabled-edge-policy-index")
 				} else {
 					if nestedDestBucket == nil {
 						var err error
@@ -161,11 +173,17 @@ func copyNestedBucket(srcBucket, destBucket *bolt.Bucket, bucketName string) err
 						log.Printf("Failed to copy nested bucket %s: %v", string(key), err)
 						return err
 					}
+					log.Printf("Successfully copied nested bucket %s", string(key))
 				}
 			} else {
-				if err := destBucket.Put(key, value); err != nil {
-					log.Printf("Failed to put key %s in bucket: %v", string(key), err)
-					return err
+				// log.Printf("Evaluating %s/%x", bucketName, key)
+				if (bucketName == graphEdgeBucketName) || (bucketName == graphNodeBucketName) {
+					if err := destBucket.Put(key, value); err != nil {
+						log.Printf("Failed to put key %s in bucket: %v", string(key), err)
+						return err
+					}
+				} else {
+					log.Printf("Skipping malformed non-subbucket in %s: %x. Len = %d", bucketName, key, len(key))
 				}
 			}
 		}
