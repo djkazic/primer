@@ -15,6 +15,7 @@ import (
 const (
 	originalDBFile      = "/lnd/data/graph/mainnet/channel.db"
 	dbFile              = "/tmp/channel.db"
+	outputFileName      = "graph-001d.db"
 	outputDBFile        = "/cryptpad/graph-001d.db"
 	md5SumsFile         = "/cryptpad/MD5SUMS"
 	graphNodeBucketName = "graph-node"
@@ -43,10 +44,10 @@ func copyFile(src, dest string) error {
 }
 
 func main() {
-        // initial run
-        run()
+	fmt.Println("Primer v0.1.0 starting")
+	// initial run
+	run()
 	ticker := time.NewTicker(time.Hour)
-
 	for {
 		select {
 		case <-ticker.C:
@@ -56,7 +57,7 @@ func main() {
 }
 
 func run() {
-    fmt.Println("Primer v0.1.0 starting")
+	fmt.Println("Cycle start")
 	os.Remove(dbFile)
 	os.Remove(outputDBFile)
 	fmt.Println("Copying sourcedb")
@@ -115,7 +116,6 @@ func copyBucket(srcDB, destDB *bolt.DB, bucketName string) error {
 			log.Printf("Source bucket %s does not exist. Skipping bucket copy.", bucketName)
 			return nil
 		}
-
 		return destDB.Update(func(tx *bolt.Tx) error {
 			destBucket := tx.Bucket([]byte(bucketName))
 			if destBucket == nil {
@@ -125,11 +125,9 @@ func copyBucket(srcDB, destDB *bolt.DB, bucketName string) error {
 					return err
 				}
 			}
-
 			if err := copyNestedBucket(srcBucket, destBucket, bucketName); err != nil {
 				return err
 			}
-
 			return nil
 		})
 	})
@@ -172,7 +170,6 @@ func copyNestedBucket(srcBucket, destBucket *bolt.Bucket, bucketName string) err
 		}
 		return nil
 	})
-
 	return err
 }
 
@@ -182,24 +179,19 @@ func generateMD5Checksum(filename, checksumFile string) error {
 		return err
 	}
 	defer file.Close()
-
 	hash := md5.New()
 	if _, err := io.Copy(hash, file); err != nil {
 		return err
 	}
-
 	checksum := hex.EncodeToString(hash.Sum(nil))
-
 	md5sumsFile, err := os.Create(checksumFile)
 	if err != nil {
 		return err
 	}
 	defer md5sumsFile.Close()
-
-	_, err = fmt.Fprintf(md5sumsFile, "%s  graph-001d.db\n", checksum)
+	_, err = fmt.Fprintf(md5sumsFile, "%s  %s\n", checksum, outputFileName)
 	if err != nil {
 		return err
 	}
-
 	return nil
 }
