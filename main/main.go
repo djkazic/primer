@@ -59,12 +59,12 @@ func main() {
 func run() {
 	fmt.Println("Cycle start")
 	os.Remove(dbFile)
-	os.Remove(outputDBFile)
 	fmt.Println("Copying sourcedb")
 	err := copyFile(originalDBFile, dbFile)
 	if err != nil {
 		log.Fatal(err)
 	}
+	time.Sleep(time.Second)
 
 	// Open the existing channel.db database file in read-only mode.
 	existingDB, err := bolt.Open(dbFile, 0600, &bolt.Options{ReadOnly: true})
@@ -75,6 +75,7 @@ func run() {
         fmt.Println("Opened channeldb")
 
 	// Create a new graph-001d.db database file.
+	os.Remove(outputDBFile)
 	strippedDBPath := outputDBFile
 	strippedDB, err := bolt.Open(strippedDBPath, 0600, nil)
 	if err != nil {
@@ -135,7 +136,7 @@ func copyBucket(srcDB, destDB *bolt.DB, bucketName string) error {
 
 func copyNestedBucket(srcBucket, destBucket *bolt.Bucket, bucketName string) error {
 	err := srcBucket.ForEach(func(key, value []byte) error {
-		if bucketName == graphEdgeBucketName && len(key) == 41 || bucketName == graphNodeBucketName {
+		if (bucketName == graphEdgeBucketName && len(key) == 41) || (bucketName == graphNodeBucketName && hex.EncodeToString(key) != "000000006499cc5f0230a5bca558e6741460c13dd34e636da28e52afd91cf93db87ed1b0392a7466eb") {
 			if nestedBucket := srcBucket.Bucket(key); nestedBucket != nil {
 				nestedDestBucket := destBucket.Bucket(key)
 				log.Printf("Evaluating bucket %s", string(key))
