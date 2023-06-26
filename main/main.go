@@ -57,6 +57,8 @@ func main() {
 
 func run() {
     fmt.Println("Primer v0.1.0 starting")
+	os.Remove(dbFile)
+	os.Remove(outputDBFile)
 	fmt.Println("Copying sourcedb")
 	err := copyFile(originalDBFile, dbFile)
 	if err != nil {
