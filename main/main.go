@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"crypto/md5"
 	"encoding/hex"
 	"fmt"
@@ -10,6 +11,8 @@ import (
 	"time"
 
 	bolt "go.etcd.io/bbolt"
+	"github.com/docker/docker/api/types"
+	"github.com/docker/docker/client"
 )
 
 const (
@@ -20,6 +23,7 @@ const (
 	md5SumsFile         = "/cryptpad/MD5SUMS"
 	graphNodeBucketName = "graph-node"
 	graphEdgeBucketName = "graph-edge"
+	containerName       = "recoverylnd"
 )
 
 func copyFile(src, dest string) error {
@@ -57,10 +61,20 @@ func main() {
 }
 
 func run() {
-	log.Println("Cycle start")
+	log.Println("Cycle start: stopping recoverylnd")
+	client, err := client.NewEnvClient()
+	if err != nil {
+		log.Fatalf("Could not initialize docker client: %w", err)
+	}
 	os.Remove(dbFile)
+	ctx := context.Background()
+	err = client.ContainerStop(ctx, containerName, nil)
+	if err != nil {
+		log.Printf("Unable to stop container %s: %s", containerName, err)
+	}
+
 	log.Println("Copying sourcedb")
-	err := copyFile(originalDBFile, dbFile)
+	err = copyFile(originalDBFile, dbFile)
 	if err != nil {
 		log.Fatal(err)
 	}
@@ -107,6 +121,15 @@ func run() {
 	}
 
 	log.Println("MD5 checksum generated successfully")
+
+	log.Println("Starting recoverylnd")
+	ctx = context.Background()
+	if err := client.ContainerStart(ctx, containerName, types.ContainerStartOptions{}); err != nil {
+		log.Printf("Unable to stop container %s: %s", containerName, err)
+	}
+	time.Sleep(10 * time.Second)
+	// Container should be up by now
+	//TODO: check container state
 }
 
 func copyBucket(srcDB, destDB *bolt.DB, bucketName string) error {
@@ -144,7 +167,6 @@ func stringInList(s string, list []string) bool {
 }
 
 func copyNestedBucket(srcBucket, destBucket *bolt.Bucket, bucketName string) error {
-    // bucketWhitelist := []string{"zombie-index", "chan-index", "edge-index", "edge-update-index"}
 	err := srcBucket.ForEach(func(key, value []byte) error {
 		if bucketName == graphEdgeBucketName || bucketName == graphNodeBucketName {
 			if nestedBucket := srcBucket.Bucket(key); nestedBucket != nil {
