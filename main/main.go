@@ -72,14 +72,17 @@ func run() {
 	if err != nil {
 		log.Printf("Unable to stop container %s: %s", containerName, err)
 	}
-
 	log.Println("Copying sourcedb")
 	err = copyFile(originalDBFile, dbFile)
 	if err != nil {
 		log.Fatal(err)
 	}
 	time.Sleep(time.Second)
-
+	log.Println("Starting recoverylnd")
+	ctx = context.Background()
+	if err := client.ContainerStart(ctx, containerName, types.ContainerStartOptions{}); err != nil {
+		log.Printf("Unable to stop container %s: %s", containerName, err)
+	}
 	// Open the existing channel.db database file in read-only mode.
 	existingDB, err := bolt.Open(dbFile, 0600, &bolt.Options{ReadOnly: true})
 	if err != nil {
@@ -87,7 +90,6 @@ func run() {
 	}
 	defer existingDB.Close()
 	log.Println("Opened channeldb")
-
 	// Create a new graph-001d.db database file.
 	os.Remove(outputDBFile)
 	strippedDBPath := outputDBFile
@@ -97,39 +99,25 @@ func run() {
 	}
 	defer strippedDB.Close()
     log.Println("Created strippeddb")
-
 	// Copy the graph-node bucket to the stripped database.
 	if err := copyBucket(existingDB, strippedDB, graphNodeBucketName); err != nil {
 		log.Println(err)
 	}
 	log.Println("Copied graph-node bucket")
-
 	// Copy the graph-edge bucket to the stripped database.
 	if err := copyBucket(existingDB, strippedDB, graphEdgeBucketName); err != nil {
 		log.Println(err)
 	}
 	log.Println("Copied graph-edge bucket")
-
 	log.Println("Stripped database created successfully")
 	strippedDB.Close()
 	err = os.Chmod(strippedDBPath, 0775)
-
 	// Generate the MD5 checksum for the graph-001d.db file.
 	err = generateMD5Checksum(strippedDBPath, md5SumsFile)
 	if err != nil {
 		log.Fatal(err)
 	}
-
 	log.Println("MD5 checksum generated successfully")
-
-	log.Println("Starting recoverylnd")
-	ctx = context.Background()
-	if err := client.ContainerStart(ctx, containerName, types.ContainerStartOptions{}); err != nil {
-		log.Printf("Unable to stop container %s: %s", containerName, err)
-	}
-	time.Sleep(10 * time.Second)
-	// Container should be up by now
-	//TODO: check container state
 }
 
 func copyBucket(srcDB, destDB *bolt.DB, bucketName string) error {
@@ -166,52 +154,54 @@ func stringInList(s string, list []string) bool {
 	return false
 }
 
+type bucketPair struct {
+    src  *bolt.Bucket
+    dest *bolt.Bucket
+}
+
 func copyNestedBucket(srcBucket, destBucket *bolt.Bucket, bucketName string) error {
-	err := srcBucket.ForEach(func(key, value []byte) error {
-		if bucketName == graphEdgeBucketName || bucketName == graphNodeBucketName {
-			if nestedBucket := srcBucket.Bucket(key); nestedBucket != nil {
-				nestedDestBucket := destBucket.Bucket(key)
-				log.Printf("Evaluating nested bucket %s", string(key))
-				if string(key) == "zombie-index" {
-					log.Printf("Skipping zombie-index")
-					destBucket.CreateBucket([]byte("zombie-index"))
-				} else if string(key) == "chan-index" {
-					log.Printf("Skipping chan-index")
-					destBucket.CreateBucket([]byte("chan-index"))
-				} else if string(key) == "disabled-edge-policy-index" {
-					log.Printf("Skipping disabled-edge-policy-index")
-				} else {
-					if nestedDestBucket == nil {
-						var err error
-						nestedDestBucket, err = destBucket.CreateBucket([]byte(key))
-						log.Printf("Created nested destBucket %s", string(key))
-						if err != nil {
-							log.Printf("Failed to create nested bucket %s: %v", string(key), err)
-							return err
-						}
-					}
-					nestedDestBucket.FillPercent = 1.0
-					if err := copyNestedBucket(nestedBucket, nestedDestBucket, bucketName); err != nil {
-						log.Printf("Failed to copy nested bucket %s: %v", string(key), err)
-						return err
-					}
-					log.Printf("Successfully copied nested bucket %s", string(key))
-				}
-			} else {
-				// log.Printf("Evaluating %s/%x", bucketName, key)
-				if (bucketName == graphEdgeBucketName) || (bucketName == graphNodeBucketName) {
-					if err := destBucket.Put(key, value); err != nil {
-						log.Printf("Failed to put key %s in bucket: %v", string(key), err)
-						return err
-					}
-				} else {
-					log.Printf("Skipping malformed non-subbucket in %s: %x. Len = %d", bucketName, key, len(key))
-				}
-			}
-		}
-		return nil
-	})
-	return err
+    stack := []bucketPair{{src: srcBucket, dest: destBucket}}
+    for len(stack) > 0 {
+        pair := stack[len(stack)-1]
+        stack = stack[:len(stack)-1] // Pop pair from stack
+        err := pair.src.ForEach(func(key, value []byte) error {
+            if bucketName == graphEdgeBucketName || bucketName == graphNodeBucketName {
+                if nestedBucket := pair.src.Bucket(key); nestedBucket != nil {
+                    strKey := string(key)
+                    nestedDestBucket := pair.dest.Bucket(key)
+                    if nestedDestBucket == nil {
+                        var err error
+                        nestedDestBucket, err = pair.dest.CreateBucket(key)
+                        if err != nil {
+                            log.Printf("Failed to create nested bucket %s: %v", strKey, err)
+                            return err
+                        }
+                        log.Printf("Created nested destBucket %s", strKey)
+                    }
+                    if strKey == "zombie-index" || strKey == "chan-index" || strKey == "disabled-edge-policy-index" {
+                        log.Printf("Skipping copy from %s", strKey)
+                    } else {
+                        nestedDestBucket.FillPercent = 1.0
+                        stack = append(stack, bucketPair{src: nestedBucket, dest: nestedDestBucket}) // Push pair to stack
+                    }
+                } else {
+                    if (bucketName == graphEdgeBucketName) || (bucketName == graphNodeBucketName) {
+                        if err := pair.dest.Put(key, value); err != nil {
+                            log.Printf("Failed to put key %s in bucket: %v", string(key), err)
+                            return err
+                        }
+                    } else {
+                        log.Printf("Skipping malformed non-subbucket in %s: %x. Len = %d", bucketName, key, len(key))
+                    }
+                }
+            }
+            return nil
+        })
+        if err != nil {
+            return err
+        }
+    }
+    return nil
 }
 
 func generateMD5Checksum(filename, checksumFile string) error {
