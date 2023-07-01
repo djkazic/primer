@@ -72,6 +72,7 @@ func run() {
 	if err != nil {
 		log.Printf("Unable to stop container %s: %s", containerName, err)
 	}
+	time.Sleep(time.Second)
 	log.Println("Copying sourcedb")
 	err = copyFile(originalDBFile, dbFile)
 	if err != nil {
@@ -84,7 +85,7 @@ func run() {
 		log.Printf("Unable to stop container %s: %s", containerName, err)
 	}
 	// Open the existing channel.db database file in read-only mode.
-	existingDB, err := bolt.Open(dbFile, 0600, &bolt.Options{ReadOnly: true})
+	existingDB, err := bolt.Open(dbFile, 0600, &bolt.Options{})
 	if err != nil {
 		log.Fatal(err)
 	}
