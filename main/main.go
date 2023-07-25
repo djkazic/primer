@@ -167,7 +167,7 @@ func run() bool {
 	strippedDB.Close()
 	err = os.Chmod(strippedDBPath, 0775)
 	// Cleanup
-	retainLatestMD5Dirs("/cryptpad", 3)
+	retainLatestMD5Dirs("/cryptpad", 4)
 	matches, err := findMD5Dirs("/cryptpad")
 	if err != nil {
 		log.Fatalf("Error:", err)
