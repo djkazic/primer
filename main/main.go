@@ -58,7 +58,7 @@ func main() {
 	if !res {
 		run()
 	}
-	ticker := time.NewTicker(time.Hour)
+	ticker := time.NewTicker(2 * time.Hour)
 	for {
 		select {
 		case <-ticker.C:
